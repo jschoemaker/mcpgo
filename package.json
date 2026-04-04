@@ -15,7 +15,8 @@
     "build": "tsc",
     "start": "node build/index.js",
     "dev": "ts-node src/index.ts",
-    "prepublishOnly": "npm run build"
+    "clean": "node -e \"require('fs').rmSync('build', {recursive:true,force:true})\"",
+    "prepublishOnly": "npm run clean && npm run build"
   },
   "keywords": ["mcp", "claude", "claude-code", "mcp-server"],
   "license": "MIT",

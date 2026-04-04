@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getMcpConfig } from "../lib/config-reader.js";
 import { updateMcpConfig } from "../lib/config-writer.js";
+import { ensureStableWrapper, getStableWrapperPath } from "../lib/wrapper-path.js";
 
 type McpServerConfig = {
   type?: string;
@@ -22,7 +23,7 @@ function getBuiltWrapperPath(): string {
 }
 
 async function writeBackup(name: string, config: object): Promise<string> {
-  const dir = path.join(os.homedir(), ".mcpmanager", "backups");
+  const dir = path.join(os.homedir(), ".mcpgo", "backups");
   await fs.mkdir(dir, { recursive: true });
   const backupPath = path.join(dir, `${name}.${Date.now()}.json`);
   await fs.writeFile(backupPath, JSON.stringify(config, null, 2), "utf-8");
@@ -32,9 +33,9 @@ async function writeBackup(name: string, config: object): Promise<string> {
 function defaultPidfile(name: string): string {
   if (process.platform === "win32") {
     const base = process.env.LOCALAPPDATA || os.tmpdir();
-    return path.join(base, "mcpmanager", "pids", `${name}.pid`);
+    return path.join(base, "mcpgo", "pids", `${name}.pid`);
   }
-  return path.join(os.tmpdir(), "mcpmanager", "pids", `${name}.pid`);
+  return path.join(os.tmpdir(), "mcpgo", "pids", `${name}.pid`);
 }
 
 function isAlreadyWrapped(cfg: McpServerConfig, wrapperPath: string): boolean {
@@ -58,14 +59,14 @@ export function registerWrapMcp(server: McpServer): void {
     },
     async ({ mcp_name }) => {
       try {
-        if (mcp_name === "mcp-manager") {
+        if (mcp_name === "mcpgo") {
           return {
             content: [
               {
                 type: "text" as const,
                 text: JSON.stringify({
                   success: false,
-                  message: "Refusing to wrap 'mcp-manager' (would self-wrap and likely break)",
+                  message: "Refusing to wrap 'mcpgo' (would self-wrap and likely break)",
                   error: "Refused",
                 }),
               },
@@ -89,9 +90,9 @@ export function registerWrapMcp(server: McpServer): void {
           };
         }
 
-        const wrapperPath = getBuiltWrapperPath();
+        const builtWrapperPath = getBuiltWrapperPath();
         try {
-          await fs.access(wrapperPath);
+          await fs.access(builtWrapperPath);
         } catch {
           return {
             content: [
@@ -99,15 +100,19 @@ export function registerWrapMcp(server: McpServer): void {
                 type: "text" as const,
                 text: JSON.stringify({
                   success: false,
-                  message: `Wrapper entrypoint not found at '${wrapperPath}'. Run 'npm run build' for mcp-manager first.`,
+                  message: `Wrapper entrypoint not found at '${builtWrapperPath}'. Run 'npm run build' for mcpgo first.`,
                   error: "Wrapper not built",
-                  data: { wrapperPath },
+                  data: { wrapperPath: builtWrapperPath },
                 }),
               },
             ],
           };
         }
-        if (isAlreadyWrapped(existing, wrapperPath)) {
+
+        const stableWrapperPath = getStableWrapperPath();
+        if (isAlreadyWrapped(existing, stableWrapperPath)) {
+          // Re-copy wrapper to stable location in case it was updated
+          await ensureStableWrapper(builtWrapperPath);
           return {
             content: [
               {
@@ -115,7 +120,7 @@ export function registerWrapMcp(server: McpServer): void {
                 text: JSON.stringify({
                   success: true,
                   message: `MCP server '${mcp_name}' is already wrapped`,
-                  data: { name: mcp_name, wrapperPath },
+                  data: { name: mcp_name, wrapperPath: stableWrapperPath },
                 }),
               },
             ],
@@ -141,6 +146,7 @@ export function registerWrapMcp(server: McpServer): void {
 
         const backupPath = await writeBackup(mcp_name, existing);
         const pidfile = defaultPidfile(mcp_name);
+        const wrapperPath = await ensureStableWrapper(builtWrapperPath);
 
         const newArgs = [wrapperPath, "--name", mcp_name, "--pidfile", pidfile, "--", command, ...args];
 

@@ -12,7 +12,7 @@ type WrapperOptions = {
 };
 
 function parseArgs(argv: string[]): { opts: WrapperOptions; child: { command: string; args: string[] } } {
-  const defaultPidfile = path.join(os.tmpdir(), "mcpmanager", "pids", "mcp.pid");
+  const defaultPidfile = path.join(os.tmpdir(), "mcpgo", "pids", "mcp.pid");
   const opts: WrapperOptions = {
     respawnMs: 250,
     maxBackoffMs: 5000,

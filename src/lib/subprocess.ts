@@ -3,37 +3,6 @@ import { promisify } from "util";
 
 const execAsync = promisify(exec);
 
-export async function runClaudeCommand(args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  try {
-    const cmd = process.platform === "win32"
-      ? `cmd /c claude ${args.join(" ")}`
-      : `claude ${args.join(" ")}`;
-    const { stdout, stderr } = await execAsync(cmd, { timeout: 30000 });
-    return { stdout, stderr, exitCode: 0 };
-  } catch (err: unknown) {
-    const e = err as { stdout?: string; stderr?: string; code?: number };
-    return { stdout: e.stdout || "", stderr: e.stderr || String(err), exitCode: e.code || 1 };
-  }
-}
-
-export async function killProcessByName(name: string): Promise<boolean> {
-  try {
-    if (process.platform === "win32") {
-      await execAsync(`taskkill /F /IM ${name}.exe`, { timeout: 10000 });
-    } else {
-      await execAsync(`pkill -f ${name}`, { timeout: 10000 });
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export async function findProcessByCommand(keyword: string): Promise<number | null> {
-  const pids = await findAllProcessesByCommand(keyword);
-  return pids.length > 0 ? pids[0] : null;
-}
-
 export async function findAllProcessesByCommand(keyword: string, rootCommand?: string): Promise<number[]> {
   try {
     if (process.platform === "win32") {
@@ -64,7 +33,7 @@ export async function findAllProcessesByCommand(keyword: string, rootCommand?: s
       const { stdout: fb3 } = await execAsync(`wmic process where "${fb3Filter}" get ProcessId`, { timeout: 10000 });
       return fb3.split("\n").map((l: string) => l.trim()).filter((l: string) => /^\d+$/.test(l)).map(Number);
     } else {
-      const { stdout } = await execAsync(`pgrep -f ${keyword}`, { timeout: 10000 });
+      const { stdout } = await execAsync(`pgrep -f "${keyword}"`, { timeout: 10000 });
       return stdout.trim().split("\n").map(Number).filter(n => !isNaN(n));
     }
   } catch {

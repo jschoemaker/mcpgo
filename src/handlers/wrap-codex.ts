@@ -11,6 +11,7 @@ import {
   rewriteMcpServerCommandArgsInToml,
   writeCodexConfigToml,
 } from "../lib/codex-config.js";
+import { ensureStableWrapper, getStableWrapperPath } from "../lib/wrapper-path.js";
 
 function getBuiltWrapperPath(): string {
   // When running from build/, this module is build/handlers/wrap-codex.js and wrapper is build/wrapper.js
@@ -21,13 +22,13 @@ function getBuiltWrapperPath(): string {
 function defaultPidfile(name: string): string {
   if (process.platform === "win32") {
     const base = process.env.LOCALAPPDATA || os.tmpdir();
-    return path.join(base, "mcpmanager", "pids", `codex.${name}.pid`);
+    return path.join(base, "mcpgo", "pids", `codex.${name}.pid`);
   }
-  return path.join(os.tmpdir(), "mcpmanager", "pids", `codex.${name}.pid`);
+  return path.join(os.tmpdir(), "mcpgo", "pids", `codex.${name}.pid`);
 }
 
 async function writeBackupToml(name: string, content: string): Promise<string> {
-  const dir = path.join(os.homedir(), ".mcpmanager", "backups");
+  const dir = path.join(os.homedir(), ".mcpgo", "backups");
   await fs.mkdir(dir, { recursive: true });
   const backupPath = path.join(dir, `codex.${name}.${Date.now()}.toml`);
   await fs.writeFile(backupPath, content, "utf-8");
@@ -39,21 +40,21 @@ export function registerWrapCodexMcp(server: McpServer): void {
     "wrap_codex_mcp_stdio",
     {
       description:
-        "Wrap a Codex CLI stdio MCP server (from ~/.codex/config.toml) so it can be restarted reliably. Rewrites the MCP entry to launch mcp-manager's Node wrapper that respawns the original command. Restart Codex CLI to take effect.",
+        "Wrap a Codex CLI stdio MCP server (from ~/.codex/config.toml) so it can be restarted reliably. Rewrites the MCP entry to launch mcpgo's Node wrapper that respawns the original command. Restart Codex CLI to take effect.",
       inputSchema: {
         mcp_name: z.string().describe("The mcp_servers.<name> entry in ~/.codex/config.toml to wrap"),
       },
     },
     async ({ mcp_name }) => {
       try {
-        if (mcp_name === "mcp-manager") {
+        if (mcp_name === "mcpgo") {
           return {
             content: [
               {
                 type: "text" as const,
                 text: JSON.stringify({
                   success: false,
-                  message: "Refusing to wrap 'mcp-manager' in Codex (would self-wrap and likely break)",
+                  message: "Refusing to wrap 'mcpgo' in Codex (would self-wrap and likely break)",
                   error: "Refused",
                 }),
               },
@@ -61,9 +62,9 @@ export function registerWrapCodexMcp(server: McpServer): void {
           };
         }
 
-        const wrapperPath = getBuiltWrapperPath();
+        const builtWrapperPath = getBuiltWrapperPath();
         try {
-          await fs.access(wrapperPath);
+          await fs.access(builtWrapperPath);
         } catch {
           return {
             content: [
@@ -71,9 +72,9 @@ export function registerWrapCodexMcp(server: McpServer): void {
                 type: "text" as const,
                 text: JSON.stringify({
                   success: false,
-                  message: `Wrapper entrypoint not found at '${wrapperPath}'. Run 'npm run build' for mcp-manager first.`,
+                  message: `Wrapper entrypoint not found at '${builtWrapperPath}'. Run 'npm run build' for mcpgo first.`,
                   error: "Wrapper not built",
-                  data: { wrapperPath },
+                  data: { wrapperPath: builtWrapperPath },
                 }),
               },
             ],
@@ -85,7 +86,8 @@ export function registerWrapCodexMcp(server: McpServer): void {
         const backupPath = await writeBackupToml(mcp_name, content);
 
         const pidfile = defaultPidfile(mcp_name);
-        const newArgs = [wrapperPath, "--name", `codex.${mcp_name}`, "--pidfile", pidfile, "--"];
+        const stableWrapperPath = getStableWrapperPath();
+        const newArgs = [stableWrapperPath, "--name", `codex.${mcp_name}`, "--pidfile", pidfile, "--"];
 
         const block = findMcpServerBlock(content, mcp_name);
         if (!block) {
@@ -143,8 +145,9 @@ export function registerWrapCodexMcp(server: McpServer): void {
         }
 
         const alreadyWrapped =
-          originalCommand === process.execPath && originalArgs.length > 0 && path.resolve(originalArgs[0]) === path.resolve(wrapperPath);
+          originalCommand === process.execPath && originalArgs.length > 0 && path.resolve(originalArgs[0]) === path.resolve(stableWrapperPath);
         if (alreadyWrapped) {
+          await ensureStableWrapper(builtWrapperPath);
           return {
             content: [
               {
@@ -152,13 +155,14 @@ export function registerWrapCodexMcp(server: McpServer): void {
                 text: JSON.stringify({
                   success: true,
                   message: `Codex MCP '${mcp_name}' is already wrapped`,
-                  data: { name: mcp_name, wrapperPath },
+                  data: { name: mcp_name, wrapperPath: stableWrapperPath },
                 }),
               },
             ],
           };
         }
 
+        const wrapperPath = await ensureStableWrapper(builtWrapperPath);
         const updatedArgs = [...newArgs, originalCommand, ...originalArgs];
         const { updatedContent, previousBlock } = rewriteMcpServerCommandArgsInToml(content, mcp_name, {
           command: process.execPath,

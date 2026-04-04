@@ -22,8 +22,8 @@ Because mcpgo is itself an MCP server, it's available everywhere Claude Code is:
 
 ```
 "list my mcps"
-"restart bridge"
-"check driftcli health"
+"restart github"
+"check postgres health"
 ```
 
 No `/mcp` UI needed.
@@ -45,8 +45,8 @@ Wrapping is **optional** — you can use mcpgo just for listing, adding, or remo
 
 **After setup:**
 ```
-"restart bridge"     → instant, wrapper auto-respawns the child, Claude Code stays connected
-"restart driftcli"   → same
+"restart github"     → instant, wrapper auto-respawns the child, Claude Code stays connected
+"restart postgres"        → same
 ```
 
 If you ever want to undo wrapping, use `unwrap_mcp_stdio` to restore the original config.
@@ -58,29 +58,29 @@ If you ever want to undo wrapping, use `unwrap_mcp_stdio` to restore the origina
 #### `wrap_mcp_stdio`
 Wrap a Claude Code stdio MCP for reliable restarts.
 ```
-"wrap bridge"
-"wrap my driftcli server"
+"wrap github"
+"wrap postgres"
 ```
 
 #### `unwrap_mcp_stdio`
 Restore a wrapped MCP to its original config.
 ```
-"unwrap bridge"
-"unwrap driftcli"
+"unwrap github"
+"unwrap postgres"
 ```
 
 #### `restart_mcp_process`
 Restart a wrapped MCP's child process — wrapper auto-respawns it, Claude Code stays connected.
 ```
-"restart bridge"
-"restart driftcli"
+"restart github"
+"restart postgres"
 ```
 
 #### `check_mcp_health`
 Check if an MCP is configured, wrapped, and its process is running.
 ```
-"check bridge health"
-"is driftcli running?"
+"check github health"
+"is postgres running?"
 ```
 
 ### Codex CLI support
@@ -88,13 +88,13 @@ Check if an MCP is configured, wrapped, and its process is running.
 #### `wrap_codex_mcp_stdio`
 Wrap a Codex CLI MCP from `~/.codex/config.toml`.
 ```
-"wrap my codex mcp called browser"
+"wrap my codex mcp called postgres"
 ```
 
 #### `restart_codex_mcp_process`
 Restart a wrapped Codex CLI MCP.
 ```
-"restart the codex browser mcp"
+"restart the codex postgres"
 ```
 
 ### Config management
@@ -121,19 +121,19 @@ Remove an MCP server.
 #### `configure_mcp`
 Update an existing MCP server's config fields.
 ```
-"change bridge's command to python3"
+"change github's command to python3"
 ```
 
 #### `get_mcp_details`
 Get full config details for a specific MCP.
 ```
-"show me the bridge mcp config"
-"get details for driftcli"
+"show me the github config"
+"get details for postgres"
 ```
 
 ## How wrapping works
 
-When you call `wrap_mcp_stdio "bridge"`, the config entry changes from:
+When you call `wrap_mcp_stdio "github"`, the config entry changes from:
 
 ```json
 { "command": "python", "args": ["server.py"] }
@@ -144,7 +144,7 @@ to:
 ```json
 {
   "command": "node",
-  "args": ["/path/to/wrapper.js", "--name", "bridge", "--pidfile", "...", "--", "python", "server.py"]
+  "args": ["/path/to/wrapper.js", "--name", "github", "--pidfile", "...", "--", "python", "server.py"]
 }
 ```
 
@@ -158,10 +158,19 @@ The wrapper:
 
 `unwrap_mcp_stdio` reverses this — it restores the original command from the args after `--` and removes the pidfile.
 
+## Stable wrapper location
+
+When you wrap an MCP, mcpgo copies `wrapper.js` to a stable user-data location and writes that path into `~/.claude.json`. This means the config survives npx cache clears and mcpgo version upgrades — the wrapper won't disappear from under you.
+
+- **Windows:** `%LOCALAPPDATA%\mcpgo\wrapper.js`
+- **Linux/macOS:** `~/.mcpgo/wrapper.js`
+
+Re-running `wrap_mcp_stdio` on an already-wrapped MCP refreshes the wrapper copy in place.
+
 ## Pidfile locations
 
-- **Windows:** `%LOCALAPPDATA%\mcpmanager\pids\<name>.pid`
-- **Linux/macOS:** `$TMPDIR/mcpmanager/pids/<name>.pid`
+- **Windows:** `%LOCALAPPDATA%\mcpgo\pids\<name>.pid`
+- **Linux/macOS:** `$TMPDIR/mcpgo/pids/<name>.pid`
 
 ## Notes
 

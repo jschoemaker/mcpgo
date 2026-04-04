@@ -63,7 +63,7 @@ export function registerUnwrapMcp(server: McpServer): void {
         await updateMcpConfig(mcp_name, restored);
 
         // Write backup of wrapped config
-        const backupDir = path.join(process.env.USERPROFILE || process.env.HOME || "", ".mcpmanager", "backups");
+        const backupDir = path.join(process.env.USERPROFILE || process.env.HOME || "", ".mcpgo", "backups");
         await fs.mkdir(backupDir, { recursive: true });
         const backupPath = path.join(backupDir, `${mcp_name}.unwrap.${Date.now()}.json`);
         await fs.writeFile(backupPath, JSON.stringify(config, null, 2), "utf-8");

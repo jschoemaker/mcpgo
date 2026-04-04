@@ -3,7 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 
 export function createMcpServer(): McpServer {
   return new McpServer(
-    { name: "mcp-manager", version: "0.1.0" },
+    { name: "mcpgo", version: "0.1.0" },
     { capabilities: { tools: {} } }
   );
 }
