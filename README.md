@@ -1,24 +1,24 @@
 # mcpgo
 
-An MCP server that manages your other MCP servers — wrap, restart, add, remove, and health check, all from within Claude Code.
+Manage your Claude Code MCPs by talking to Claude — list, restart, wrap, and more.
+
+Works everywhere Claude Code works, including **Remote Control** where `/mcp` isn't available.
 
 ## Installation
-
-Add to Claude Code:
 
 ```bash
 claude mcp add mcpgo -- npx -y mcpgo
 ```
 
-That's it. No cloning, no building.
+No cloning, no building.
 
-## Why this exists
+**Requirements:** Node.js ≥ 18
 
-### Remote Control doesn't have `/mcp`
+## Remote Control
 
-Claude Code's Remote Control mode lets you use Claude from anywhere — but it has no access to the `/mcp` command. That means you can't list, restart, or manage MCP servers remotely.
+Claude Code's Remote Control mode has no access to `/mcp`. That means you can't list, restart, or manage MCP servers remotely — unless you have mcpgo.
 
-`mcpgo` fills that gap. Because it's an MCP server itself, it's available everywhere Claude Code is — including Remote Control. You can say:
+Because mcpgo is itself an MCP server, it's available everywhere Claude Code is:
 
 ```
 "list my mcps"
@@ -26,15 +26,17 @@ Claude Code's Remote Control mode lets you use Claude from anywhere — but it h
 "check driftcli health"
 ```
 
-...and it works, no `/mcp` UI needed.
+No `/mcp` UI needed.
 
 ## What it does
 
-### Reliable restarts (the main feature)
+### Reliable restarts
 
 Claude Code connects to stdio MCP servers via pipes it creates at launch. If a server crashes or you want to restart it, Claude Code marks it as failed with no auto-recovery.
 
-`mcp-manager` solves this with a **wrapper**: a long-lived process that sits between Claude Code and your MCP. Claude Code talks to the wrapper (which stays alive), and the wrapper spawns the real server as a child — auto-respawning it whenever it's killed.
+mcpgo solves this with a **wrapper**: a long-lived process that sits between Claude Code and your MCP. Claude Code talks to the wrapper (which stays alive), and the wrapper spawns the real server as a child — auto-respawning it whenever it's killed.
+
+Wrapping is **optional** — you can use mcpgo just for listing, adding, or removing MCPs without wrapping anything. Wrapping is only needed if you want reliable restarts without touching `/mcp`.
 
 **One-time setup per MCP:**
 1. `wrap_mcp_stdio` — wraps the target MCP in config
@@ -43,9 +45,11 @@ Claude Code connects to stdio MCP servers via pipes it creates at launch. If a s
 
 **After setup:**
 ```
-"restart bridge"     → instant, no /mcp needed, wrapper auto-respawns the child
+"restart bridge"     → instant, wrapper auto-respawns the child, Claude Code stays connected
 "restart driftcli"   → same
 ```
+
+If you ever want to undo wrapping, use `unwrap_mcp_stdio` to restore the original config.
 
 ## Tools
 
@@ -59,7 +63,7 @@ Wrap a Claude Code stdio MCP for reliable restarts.
 ```
 
 #### `unwrap_mcp_stdio`
-Restore an MCP to its original unwrapped config.
+Restore a wrapped MCP to its original config.
 ```
 "unwrap bridge"
 "unwrap driftcli"
@@ -79,8 +83,6 @@ Check if an MCP is configured, wrapped, and its process is running.
 "is driftcli running?"
 ```
 
----
-
 ### Codex CLI support
 
 #### `wrap_codex_mcp_stdio`
@@ -94,8 +96,6 @@ Restart a wrapped Codex CLI MCP.
 ```
 "restart the codex browser mcp"
 ```
-
----
 
 ### Config management
 
@@ -119,9 +119,9 @@ Remove an MCP server.
 ```
 
 #### `configure_mcp`
-Update an existing MCP server's config.
+Update an existing MCP server's config fields.
 ```
-"update bridge to use port 8080"
+"change bridge's command to python3"
 ```
 
 #### `get_mcp_details`
@@ -156,6 +156,8 @@ The wrapper:
 
 `restart_mcp_process` reads the pidfile and kills the child. The wrapper respawns it — Claude Code never sees a disconnect.
 
+`unwrap_mcp_stdio` reverses this — it restores the original command from the args after `--` and removes the pidfile.
+
 ## Pidfile locations
 
 - **Windows:** `%LOCALAPPDATA%\mcpmanager\pids\<name>.pid`
@@ -163,6 +165,6 @@ The wrapper:
 
 ## Notes
 
-- Wrapping requires a Claude Code restart (or manual disconnect + reconnect) to take effect — Claude Code caches config in memory
+- Wrapping requires a Claude Code restart (or manual `/mcp` disconnect + reconnect) to take effect — Claude Code caches config in memory
 - `restart_mcp_process` works best on wrapped MCPs; for unwrapped ones it kills the process but you'll need to reconnect manually via `/mcp`
-- Mid-request crashes may cause a protocol desync; Claude Code recovers on the next tool call
+- Mid-request crashes may cause a brief protocol desync; Claude Code recovers on the next tool call
