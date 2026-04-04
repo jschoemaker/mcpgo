@@ -50,27 +50,86 @@ Claude Code connects to stdio MCP servers via pipes it creates at launch. If a s
 ## Tools
 
 ### Process management
-| Tool | Description |
-|------|-------------|
-| `wrap_mcp_stdio` | Wrap a Claude Code stdio MCP for reliable restarts |
-| `unwrap_mcp_stdio` | Restore an MCP to its original unwrapped config |
-| `restart_mcp_process` | Restart a wrapped MCP's child process (wrapper auto-respawns it) |
-| `check_mcp_health` | Check if an MCP is configured, wrapped, and running |
+
+#### `wrap_mcp_stdio`
+Wrap a Claude Code stdio MCP for reliable restarts.
+```
+"wrap bridge"
+"wrap my driftcli server"
+```
+
+#### `unwrap_mcp_stdio`
+Restore an MCP to its original unwrapped config.
+```
+"unwrap bridge"
+"unwrap driftcli"
+```
+
+#### `restart_mcp_process`
+Restart a wrapped MCP's child process — wrapper auto-respawns it, Claude Code stays connected.
+```
+"restart bridge"
+"restart driftcli"
+```
+
+#### `check_mcp_health`
+Check if an MCP is configured, wrapped, and its process is running.
+```
+"check bridge health"
+"is driftcli running?"
+```
+
+---
 
 ### Codex CLI support
-| Tool | Description |
-|------|-------------|
-| `wrap_codex_mcp_stdio` | Wrap a Codex CLI MCP (`~/.codex/config.toml`) |
-| `restart_codex_mcp_process` | Restart a wrapped Codex MCP |
+
+#### `wrap_codex_mcp_stdio`
+Wrap a Codex CLI MCP from `~/.codex/config.toml`.
+```
+"wrap my codex mcp called browser"
+```
+
+#### `restart_codex_mcp_process`
+Restart a wrapped Codex CLI MCP.
+```
+"restart the codex browser mcp"
+```
+
+---
 
 ### Config management
-| Tool | Description |
-|------|-------------|
-| `list_all_mcps` | List all configured MCP servers |
-| `add_mcp` | Add a new MCP server |
-| `remove_mcp` | Remove an MCP server |
-| `configure_mcp` | Update an existing MCP server's config |
-| `get_mcp_details` | Get full config details for an MCP |
+
+#### `list_all_mcps`
+List all configured MCP servers.
+```
+"list my mcps"
+"what mcps do I have?"
+```
+
+#### `add_mcp`
+Add a new MCP server to `~/.claude.json`.
+```
+"add an mcp called my-tool that runs python server.py"
+```
+
+#### `remove_mcp`
+Remove an MCP server.
+```
+"remove the my-tool mcp"
+```
+
+#### `configure_mcp`
+Update an existing MCP server's config.
+```
+"update bridge to use port 8080"
+```
+
+#### `get_mcp_details`
+Get full config details for a specific MCP.
+```
+"show me the bridge mcp config"
+"get details for driftcli"
+```
 
 ## How wrapping works
 
