@@ -7,7 +7,7 @@ Works everywhere Claude Code works, including **Remote Control** where `/mcp` is
 ## Installation
 
 ```bash
-claude mcp add mcpgo -- npx -y mcpgo
+claude mcp add mcpgo -- npx -y @exfil/mcpgo
 ```
 
 No cloning, no building.
