@@ -12,6 +12,22 @@ claude mcp add mcpgo -- npx -y mcpgo
 
 That's it. No cloning, no building.
 
+## Why this exists
+
+### Remote Control doesn't have `/mcp`
+
+Claude Code's Remote Control mode lets you use Claude from anywhere — but it has no access to the `/mcp` command. That means you can't list, restart, or manage MCP servers remotely.
+
+`mcpgo` fills that gap. Because it's an MCP server itself, it's available everywhere Claude Code is — including Remote Control. You can say:
+
+```
+"list my mcps"
+"restart bridge"
+"check driftcli health"
+```
+
+...and it works, no `/mcp` UI needed.
+
 ## What it does
 
 ### Reliable restarts (the main feature)
