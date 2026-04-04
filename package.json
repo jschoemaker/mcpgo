@@ -1,6 +1,6 @@
 {
   "name": "@exfil/mcpgo",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "mcpName": "io.github.jschoemaker/mcpgo",
   "description": "MCP server that manages your other MCP servers — wrap, restart, add, remove, and health check from within Claude Code.",
   "type": "module",

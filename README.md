@@ -8,7 +8,7 @@ Works everywhere Claude Code works, including **Remote Control** where `/mcp` is
 
 ```bash
 npm install -g @exfil/mcpgo
-claude mcp add mcpgo -- mcpgo
+claude mcp add mcpgo --scope user -- mcpgo
 ```
 
 **Requirements:** Node.js ≥ 18
