@@ -1,0 +1,34 @@
+{
+  "name": "mcpgo",
+  "version": "0.1.0",
+  "description": "MCP server that manages your other MCP servers — wrap, restart, add, remove, and health check from within Claude Code.",
+  "type": "module",
+  "main": "build/index.js",
+  "bin": {
+    "mcpgo": "build/index.js"
+  },
+  "files": [
+    "build/",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "start": "node build/index.js",
+    "dev": "ts-node src/index.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": ["mcp", "claude", "claude-code", "mcp-server"],
+  "license": "MIT",
+  "author": "jerown",
+  "engines": { "node": ">=18.0.0" },
+  "repository": { "type": "git", "url": "https://github.com/jschoemaker/mcpgo.git" },
+  "homepage": "https://github.com/jschoemaker/mcpgo",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.1",
+    "typescript": "^6.0.2"
+  }
+}
