@@ -7,10 +7,9 @@ Works everywhere Claude Code works, including **Remote Control** where `/mcp` is
 ## Installation
 
 ```bash
-claude mcp add mcpgo -- npx -y @exfil/mcpgo
+npm install -g @exfil/mcpgo
+claude mcp add mcpgo -- mcpgo
 ```
-
-No cloning, no building.
 
 **Requirements:** Node.js ≥ 18
 
