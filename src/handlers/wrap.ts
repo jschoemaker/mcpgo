@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getMcpConfig } from "../lib/config-reader.js";
-import { updateMcpConfig } from "../lib/config-writer.js";
+import { replaceMcpConfig } from "../lib/config-writer.js";
 import { ensureStableWrapper, getStableWrapperPath } from "../lib/wrapper-path.js";
 
 type McpServerConfig = {
@@ -150,7 +150,7 @@ export function registerWrapMcp(server: McpServer): void {
 
         const newArgs = [wrapperPath, "--name", mcp_name, "--pidfile", pidfile, "--", command, ...args];
 
-        const updated = await updateMcpConfig(mcp_name, {
+        const updated = await replaceMcpConfig(mcp_name, {
           type: existing.type ?? "stdio",
           command: process.execPath,
           args: newArgs,

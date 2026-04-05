@@ -3,7 +3,7 @@ import { z } from "zod";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { getMcpConfig } from "../lib/config-reader.js";
-import { updateMcpConfig } from "../lib/config-writer.js";
+import { replaceMcpConfig } from "../lib/config-writer.js";
 
 export function registerUnwrapMcp(server: McpServer): void {
   server.registerTool(
@@ -60,7 +60,7 @@ export function registerUnwrapMcp(server: McpServer): void {
           try { await fs.unlink(pidfile); } catch { /* ignore */ }
         }
 
-        await updateMcpConfig(mcp_name, restored);
+        await replaceMcpConfig(mcp_name, restored);
 
         // Write backup of wrapped config
         const backupDir = path.join(process.env.USERPROFILE || process.env.HOME || "", ".mcpgo", "backups");

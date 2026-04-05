@@ -2,3 +2,6 @@ node_modules/
 build/
 dist/
 *.log
+.mcpregistry_github_token
+.mcpregistry_registry_token
+mcp-publisher.exe

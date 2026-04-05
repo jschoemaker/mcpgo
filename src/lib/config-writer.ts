@@ -46,3 +46,11 @@ export async function updateMcpConfig(name: string, updates: Partial<Record<stri
   await writeFullConfig(full);
   return merged;
 }
+
+export async function replaceMcpConfig(name: string, config: Record<string, unknown>): Promise<object> {
+  const full = await readFullConfig();
+  if (!full.mcpServers) full.mcpServers = {};
+  (full.mcpServers as Record<string, object>)[name] = config;
+  await writeFullConfig(full);
+  return config;
+}
