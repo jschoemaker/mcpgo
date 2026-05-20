@@ -184,6 +184,36 @@ export function findFootgunEnvKey(env: Record<string, string> | undefined): stri
 }
 
 /**
+ * Redact `env` values inside an MCP config so that listing / details tools
+ * don't leak secrets stored in MCP env fields (API keys, tokens) to whoever
+ * called the tool. Keys are preserved; values become "***". Pass-through if
+ * `reveal` is true.
+ */
+export function redactEnvInConfig(config: unknown, reveal: boolean): unknown {
+  if (reveal || !config || typeof config !== "object") return config;
+  const cfg = config as Record<string, unknown>;
+  const env = cfg["env"];
+  if (!env || typeof env !== "object") return config;
+  const redacted: Record<string, string> = {};
+  for (const k of Object.keys(env as Record<string, unknown>)) {
+    redacted[k] = "***";
+  }
+  return { ...cfg, env: redacted };
+}
+
+export function redactEnvInConfigs(
+  configs: Record<string, object>,
+  reveal: boolean
+): Record<string, object> {
+  if (reveal) return configs;
+  const out: Record<string, object> = {};
+  for (const [name, cfg] of Object.entries(configs)) {
+    out[name] = redactEnvInConfig(cfg, false) as object;
+  }
+  return out;
+}
+
+/**
  * Default env passthrough for wrapped MCPs. Covers what's needed for typical
  * shells/runtimes to start (locale, temp, home, PATH) without leaking arbitrary
  * secrets from Claude Code's environment. Trailing `*` means prefix match.
