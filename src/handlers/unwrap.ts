@@ -4,6 +4,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { getMcpConfig } from "../lib/config-reader.js";
 import { replaceMcpConfig } from "../lib/config-writer.js";
+import { getStableWrapperPath } from "../lib/wrapper-path.js";
+import { assertValidMcpName, InvalidMcpNameError, isAllowedPidfilePath, nameErrorResponse } from "../lib/security.js";
 
 export function registerUnwrapMcp(server: McpServer): void {
   server.registerTool(
@@ -16,6 +18,10 @@ export function registerUnwrapMcp(server: McpServer): void {
     },
     async ({ mcp_name }) => {
       try {
+        try { assertValidMcpName(mcp_name); } catch (e) {
+          if (e instanceof InvalidMcpNameError) return nameErrorResponse(mcp_name);
+          throw e;
+        }
         const config = await getMcpConfig(mcp_name) as Record<string, unknown> | null;
         if (!config) {
           return {
@@ -26,9 +32,18 @@ export function registerUnwrapMcp(server: McpServer): void {
         const args = config["args"] as string[] | undefined;
         const sepIdx = args ? args.indexOf("--") : -1;
 
-        if (sepIdx < 0) {
+        // Structural wrap check: args[0] must resolve to the stable wrapper
+        // path. Pattern-matching on "--" alone would let unwrap mangle any
+        // config that happens to use a `--` separator.
+        const stableWrapperPath = getStableWrapperPath();
+        const isStructurallyWrapped = !!args && args.length > 0 && (() => {
+          try { return path.resolve(args[0]) === path.resolve(stableWrapperPath); }
+          catch { return false; }
+        })();
+
+        if (sepIdx < 0 || !isStructurallyWrapped) {
           return {
-            content: [{ type: "text" as const, text: JSON.stringify({ success: false, message: `MCP server '${mcp_name}' does not appear to be wrapped (no '--' separator in args)`, error: "Not wrapped" }) }],
+            content: [{ type: "text" as const, text: JSON.stringify({ success: false, message: `MCP server '${mcp_name}' does not appear to be wrapped by mcpgo`, error: "Not wrapped" }) }],
           };
         }
 
@@ -53,11 +68,15 @@ export function registerUnwrapMcp(server: McpServer): void {
           ...(cwd ? { cwd } : {}),
         };
 
-        // Clean up pidfile if it exists
+        // Clean up pidfile if it exists. Only unlink when the path is inside
+        // one of the canonical mcpgo pidfile directories — otherwise a planted
+        // config could turn unwrap into an arbitrary-file-delete primitive.
         const pidfileIndex = args!.indexOf("--pidfile");
         const pidfile = pidfileIndex >= 0 ? args![pidfileIndex + 1] : undefined;
-        if (pidfile) {
+        if (pidfile && isAllowedPidfilePath(pidfile, mcp_name, "claude")) {
           try { await fs.unlink(pidfile); } catch { /* ignore */ }
+        } else if (pidfile) {
+          process.stderr.write(`[unwrap_mcp_stdio] refusing pidfile outside mcpgo dirs: '${pidfile}'\n`);
         }
 
         await replaceMcpConfig(mcp_name, restored);

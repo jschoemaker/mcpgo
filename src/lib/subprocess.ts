@@ -1,40 +1,87 @@
-import { exec } from "child_process";
+import { execFile } from "child_process";
 import { promisify } from "util";
+import { sanitizePgrepKeyword, sanitizeWqlKeyword } from "./security.js";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
+
+/**
+ * Escape a value for inclusion inside a single-quoted WMIC WQL string literal.
+ * WQL doubles single quotes; we also strip percents/underscores because the
+ * caller uses LIKE with literal wildcards we control.
+ */
+function escapeWqlLiteral(s: string): string {
+  return s.replace(/'/g, "''").replace(/[%_]/g, "");
+}
 
 export async function findAllProcessesByCommand(keyword: string, rootCommand?: string): Promise<number[]> {
+  const safeKeyword = sanitizeWqlKeyword(keyword);
+  if (!safeKeyword) return [];
+  const safeRoot = rootCommand ? sanitizeWqlKeyword(rootCommand) : undefined;
+
   try {
     if (process.platform === "win32") {
       const claudePid = process.ppid;
-      const filter = rootCommand
-        ? `name='${rootCommand}' and parentprocessid=${claudePid} and commandline like '%${keyword}%'`
-        : `parentprocessid=${claudePid} and commandline like '%${keyword}%'`;
-      const { stdout } = await execAsync(
-        `wmic process where "${filter}" get ProcessId`,
-        { timeout: 10000 }
-      );
-      const pids = stdout.split("\n").map((l: string) => l.trim()).filter((l: string) => /^\d+$/.test(l)).map(Number);
-      if (pids.length > 0) return pids;
-      // Fallback 1: remove parent filter (process may have been reparented)
-      if (rootCommand) {
-        const fb1Filter = `name='${rootCommand}' and commandline like '%${keyword}%'`;
-        const { stdout: fb1 } = await execAsync(`wmic process where "${fb1Filter}" get ProcessId`, { timeout: 10000 });
-        const fb1Pids = fb1.split("\n").map((l: string) => l.trim()).filter((l: string) => /^\d+$/.test(l)).map(Number);
-        if (fb1Pids.length > 0) return fb1Pids;
+
+      const runWmic = async (where: string): Promise<number[]> => {
+        try {
+          const { stdout } = await execFileAsync(
+            "wmic",
+            ["process", "where", where, "get", "ProcessId"],
+            { timeout: 10000, windowsHide: true }
+          );
+          return stdout
+            .split("\n")
+            .map((l) => l.trim())
+            .filter((l) => /^\d+$/.test(l))
+            .map(Number);
+        } catch {
+          return [];
+        }
+      };
+
+      const kw = escapeWqlLiteral(safeKeyword);
+      const root = safeRoot ? escapeWqlLiteral(safeRoot) : undefined;
+
+      // Filter cascade: tightest → broadest. Parent-PID + root-command + keyword
+      // wins; we widen only on empty results to keep scope minimal.
+      if (root) {
+        const a = await runWmic(
+          `name='${root}' and parentprocessid=${claudePid} and commandline like '%${kw}%'`
+        );
+        if (a.length > 0) return a;
+      } else {
+        const a = await runWmic(
+          `parentprocessid=${claudePid} and commandline like '%${kw}%'`
+        );
+        if (a.length > 0) return a;
       }
-      // Fallback 2: no rootCommand or parent filter — search only by keyword under parent
-      const fb2Filter = `parentprocessid=${claudePid} and commandline like '%${keyword}%'`;
-      const { stdout: fb2 } = await execAsync(`wmic process where "${fb2Filter}" get ProcessId`, { timeout: 10000 });
-      const fb2Pids = fb2.split("\n").map((l: string) => l.trim()).filter((l: string) => /^\d+$/.test(l)).map(Number);
-      if (fb2Pids.length > 0) return fb2Pids;
-      // Fallback 3: broadest — just keyword anywhere
-      const fb3Filter = `commandline like '%${keyword}%'`;
-      const { stdout: fb3 } = await execAsync(`wmic process where "${fb3Filter}" get ProcessId`, { timeout: 10000 });
-      return fb3.split("\n").map((l: string) => l.trim()).filter((l: string) => /^\d+$/.test(l)).map(Number);
+
+      if (root) {
+        const b = await runWmic(`name='${root}' and commandline like '%${kw}%'`);
+        if (b.length > 0) return b;
+      }
+
+      const c = await runWmic(
+        `parentprocessid=${claudePid} and commandline like '%${kw}%'`
+      );
+      if (c.length > 0) return c;
+
+      return await runWmic(`commandline like '%${kw}%'`);
     } else {
-      const { stdout } = await execAsync(`pgrep -f "${keyword}"`, { timeout: 10000 });
-      return stdout.trim().split("\n").map(Number).filter(n => !isNaN(n));
+      const safePgrep = sanitizePgrepKeyword(safeKeyword);
+      if (!safePgrep) return [];
+      try {
+        const { stdout } = await execFileAsync("pgrep", ["-f", safePgrep], {
+          timeout: 10000,
+        });
+        return stdout
+          .trim()
+          .split("\n")
+          .map(Number)
+          .filter((n) => !Number.isNaN(n));
+      } catch {
+        return [];
+      }
     }
   } catch {
     return [];
@@ -42,13 +89,13 @@ export async function findAllProcessesByCommand(keyword: string, rootCommand?: s
 }
 
 export async function killPid(pid: number): Promise<boolean> {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
     if (process.platform === "win32") {
-      // Try graceful first (WM_CLOSE), fall back to force if needed
       try {
-        await execAsync(`taskkill /PID ${pid}`, { timeout: 5000 });
+        await execFileAsync("taskkill", ["/PID", String(pid)], { timeout: 5000, windowsHide: true });
       } catch {
-        await execAsync(`taskkill /F /PID ${pid}`, { timeout: 5000 });
+        await execFileAsync("taskkill", ["/F", "/PID", String(pid)], { timeout: 5000, windowsHide: true });
       }
     } else {
       process.kill(pid, "SIGTERM");

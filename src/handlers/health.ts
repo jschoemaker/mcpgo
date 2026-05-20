@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import fs from "node:fs/promises";
 import { getMcpConfig } from "../lib/config-reader.js";
+import { assertValidMcpName, InvalidMcpNameError, isAllowedPidfilePath, nameErrorResponse } from "../lib/security.js";
 
 async function isPidRunning(pid: number): Promise<boolean> {
   try {
@@ -23,6 +24,10 @@ export function registerCheckHealth(server: McpServer): void {
     },
     async ({ mcp_name }) => {
       try {
+        try { assertValidMcpName(mcp_name); } catch (e) {
+          if (e instanceof InvalidMcpNameError) return nameErrorResponse(mcp_name);
+          throw e;
+        }
         const config = await getMcpConfig(mcp_name) as Record<string, unknown> | null;
         if (!config) {
           return {
@@ -48,17 +53,23 @@ export function registerCheckHealth(server: McpServer): void {
         let status = "unknown";
 
         if (pidfile) {
-          try {
-            const pidStr = (await fs.readFile(pidfile, "utf-8")).trim();
-            childPid = Number(pidStr);
-            if (Number.isInteger(childPid) && childPid > 0) {
-              childRunning = await isPidRunning(childPid);
-              status = childRunning ? "running" : "child_dead";
-            } else {
-              status = "invalid_pidfile";
+          if (!isAllowedPidfilePath(pidfile, mcp_name, "claude")) {
+            // A config entry pointed at a pidfile outside the canonical mcpgo
+            // dirs. Don't touch it — just report.
+            status = "pidfile_outside_mcpgo";
+          } else {
+            try {
+              const pidStr = (await fs.readFile(pidfile, "utf-8")).trim();
+              childPid = Number(pidStr);
+              if (Number.isInteger(childPid) && childPid > 0) {
+                childRunning = await isPidRunning(childPid);
+                status = childRunning ? "running" : "child_dead";
+              } else {
+                status = "invalid_pidfile";
+              }
+            } catch {
+              status = "pidfile_missing";
             }
-          } catch {
-            status = "pidfile_missing";
           }
         }
 

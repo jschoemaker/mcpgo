@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { getMcpConfig } from "../lib/config-reader.js";
+import { assertValidMcpName, InvalidMcpNameError, nameErrorResponse } from "../lib/security.js";
 
 export function registerGetDetails(server: McpServer): void {
   server.registerTool(
@@ -13,6 +14,10 @@ export function registerGetDetails(server: McpServer): void {
     },
     async ({ mcp_name }) => {
       try {
+        try { assertValidMcpName(mcp_name); } catch (e) {
+          if (e instanceof InvalidMcpNameError) return nameErrorResponse(mcp_name);
+          throw e;
+        }
         const config = await getMcpConfig(mcp_name);
         if (!config) {
           return {

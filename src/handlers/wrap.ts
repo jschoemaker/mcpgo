@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { getMcpConfig } from "../lib/config-reader.js";
 import { replaceMcpConfig } from "../lib/config-writer.js";
 import { ensureStableWrapper, getStableWrapperPath } from "../lib/wrapper-path.js";
+import { assertValidMcpName, InvalidMcpNameError, nameErrorResponse } from "../lib/security.js";
 
 type McpServerConfig = {
   type?: string;
@@ -59,6 +60,10 @@ export function registerWrapMcp(server: McpServer): void {
     },
     async ({ mcp_name }) => {
       try {
+        try { assertValidMcpName(mcp_name); } catch (e) {
+          if (e instanceof InvalidMcpNameError) return nameErrorResponse(mcp_name);
+          throw e;
+        }
         if (mcp_name === "mcpgo") {
           return {
             content: [

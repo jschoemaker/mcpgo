@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { updateMcpConfig } from "../lib/config-writer.js";
 import { getMcpConfig } from "../lib/config-reader.js";
+import { assertValidMcpName, hasShellMetacharacters, InvalidMcpNameError, nameErrorResponse } from "../lib/security.js";
 
 export function registerConfigureMcp(server: McpServer): void {
   server.registerTool(
@@ -19,10 +20,33 @@ export function registerConfigureMcp(server: McpServer): void {
             headers: z.record(z.string(), z.string()).optional().describe("HTTP headers for http/sse type servers"),
           })
           .describe("Fields to update in the MCP server config"),
+        allow_shell_metacharacters: z
+          .boolean()
+          .optional()
+          .describe("Set true to override the safety refusal when 'updates.command' contains shell metacharacters."),
       },
     },
-    async ({ mcp_name, updates }) => {
+    async ({ mcp_name, updates, allow_shell_metacharacters }) => {
       try {
+        try { assertValidMcpName(mcp_name); } catch (e) {
+          if (e instanceof InvalidMcpNameError) return nameErrorResponse(mcp_name);
+          throw e;
+        }
+        if (updates.command && hasShellMetacharacters(updates.command) && !allow_shell_metacharacters) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify({
+                  success: false,
+                  message: `Refusing to configure MCP '${mcp_name}': new command contains shell metacharacters. Pass shell pipelines via 'args' or set allow_shell_metacharacters=true to override.`,
+                  error: "Shell metacharacters in command",
+                  data: { command: updates.command },
+                }),
+              },
+            ],
+          };
+        }
         // Check that the server exists first
         const existing = await getMcpConfig(mcp_name);
         if (!existing) {

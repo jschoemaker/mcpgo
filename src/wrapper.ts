@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
+import fsSync from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -9,6 +10,7 @@ type WrapperOptions = {
   cwd?: string;
   respawnMs: number;
   maxBackoffMs: number;
+  envAllowlist?: Set<string>;
 };
 
 function parseArgs(argv: string[]): { opts: WrapperOptions; child: { command: string; args: string[] } } {
@@ -35,6 +37,9 @@ function parseArgs(argv: string[]): { opts: WrapperOptions; child: { command: st
       opts.respawnMs = Number(args[++i]);
     } else if (a === "--max-backoff-ms") {
       opts.maxBackoffMs = Number(args[++i]);
+    } else if (a === "--env-allowlist") {
+      const list = (args[++i] || "").split(",").map((s) => s.trim()).filter(Boolean);
+      opts.envAllowlist = new Set(list);
     }
   }
 
@@ -63,6 +68,42 @@ async function clearPid(pidfile: string | undefined): Promise<void> {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Resolve a command name to an absolute executable path using PATH (and
+ * PATHEXT on Windows). Returns the original command unchanged if it already
+ * contains a path separator or no candidate is found. Replaces the old
+ * `shell: true` Windows path, which let cmd.exe re-parse args (and child
+ * metacharacters) at spawn time.
+ */
+function resolveExecutable(command: string, env: NodeJS.ProcessEnv): string {
+  if (command.includes("/") || command.includes("\\")) return command;
+  const pathEntries = (env.PATH || env.Path || "").split(path.delimiter).filter(Boolean);
+  const exts = process.platform === "win32"
+    ? (env.PATHEXT || ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean)
+    : [""];
+  const hasExt = process.platform === "win32" && /\.[^.\\/]+$/.test(command);
+  for (const dir of pathEntries) {
+    if (hasExt) {
+      const candidate = path.join(dir, command);
+      if (fsSync.existsSync(candidate)) return candidate;
+      continue;
+    }
+    for (const ext of exts) {
+      const candidate = path.join(dir, command + ext);
+      if (fsSync.existsSync(candidate)) return candidate;
+    }
+  }
+  return command;
+}
+
+function filterEnv(source: NodeJS.ProcessEnv, allowlist: Set<string>): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = {};
+  for (const key of allowlist) {
+    if (source[key] !== undefined) out[key] = source[key];
+  }
+  return out;
 }
 
 async function main() {
@@ -98,15 +139,21 @@ async function main() {
 
   async function spawnChild(): Promise<void> {
     const startedAt = Date.now();
-    const shellCommands = new Set(["cmd", "cmd.exe", "bash", "sh", "pwsh", "powershell"]);
-    const needsShell = process.platform === "win32" &&
-      !shellCommands.has(child.command.split(/[/\\]/).pop()?.toLowerCase() ?? "");
-    const proc = spawn(child.command, child.args, {
+    const childEnv = opts.envAllowlist
+      ? filterEnv(process.env, opts.envAllowlist)
+      : process.env;
+    const resolved = resolveExecutable(child.command, childEnv);
+    // Node ≥ 18.20 / 20.12 refuses to spawn .cmd / .bat files without a shell
+    // (CVE-2024-27980). Use `shell: true` only for that narrow case — Node
+    // applies its own cmd-quoting for the args we pass. Everything else
+    // spawns with shell: false to avoid cmd.exe re-parsing arg metachars.
+    const needsCmdShell = process.platform === "win32" && /\.(cmd|bat)$/i.test(resolved);
+    const proc = spawn(resolved, child.args, {
       stdio: ["pipe", "pipe", "pipe"],
-      env: process.env,
+      env: childEnv,
       cwd: opts.cwd ?? process.cwd(),
       windowsHide: true,
-      shell: needsShell,
+      shell: needsCmdShell,
     });
     currentChild = proc;
 
@@ -136,7 +183,6 @@ async function main() {
         return;
       }
 
-      // If the child stayed up for a while, reset backoff to the base.
       if (Date.now() - startedAt > 10_000) {
         backoff = opts.respawnMs;
       }

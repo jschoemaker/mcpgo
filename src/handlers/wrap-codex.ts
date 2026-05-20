@@ -12,6 +12,7 @@ import {
   writeCodexConfigToml,
 } from "../lib/codex-config.js";
 import { ensureStableWrapper, getStableWrapperPath } from "../lib/wrapper-path.js";
+import { assertValidMcpName, InvalidMcpNameError, nameErrorResponse } from "../lib/security.js";
 
 function getBuiltWrapperPath(): string {
   // When running from build/, this module is build/handlers/wrap-codex.js and wrapper is build/wrapper.js
@@ -47,6 +48,10 @@ export function registerWrapCodexMcp(server: McpServer): void {
     },
     async ({ mcp_name }) => {
       try {
+        try { assertValidMcpName(mcp_name); } catch (e) {
+          if (e instanceof InvalidMcpNameError) return nameErrorResponse(mcp_name);
+          throw e;
+        }
         if (mcp_name === "mcpgo") {
           return {
             content: [

@@ -3,6 +3,7 @@ import { z } from "zod";
 import fs from "node:fs/promises";
 import { findMcpServerBlock, getCodexConfigTomlPath, readCodexConfigToml } from "../lib/codex-config.js";
 import { killPid } from "../lib/subprocess.js";
+import { assertValidMcpName, InvalidMcpNameError, isAllowedPidfilePath, nameErrorResponse } from "../lib/security.js";
 
 export function registerRestartCodexMcp(server: McpServer): void {
   server.registerTool(
@@ -16,6 +17,10 @@ export function registerRestartCodexMcp(server: McpServer): void {
     },
     async ({ mcp_name }) => {
       try {
+        try { assertValidMcpName(mcp_name); } catch (e) {
+          if (e instanceof InvalidMcpNameError) return nameErrorResponse(mcp_name);
+          throw e;
+        }
         const configPath = getCodexConfigTomlPath();
         const content = await readCodexConfigToml();
         const block = findMcpServerBlock(content, mcp_name);
@@ -52,6 +57,21 @@ export function registerRestartCodexMcp(server: McpServer): void {
 
         const pidfileIndex = args ? args.indexOf("--pidfile") : -1;
         const pidfile = pidfileIndex >= 0 ? args?.[pidfileIndex + 1] : undefined;
+        if (pidfile && !isAllowedPidfilePath(pidfile, mcp_name, "codex")) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify({
+                  success: false,
+                  message: `Refusing to use pidfile path outside the canonical mcpgo pidfile directory for Codex MCP '${mcp_name}'`,
+                  error: "Disallowed pidfile path",
+                  data: { name: mcp_name, pidfile },
+                }),
+              },
+            ],
+          };
+        }
         if (!pidfile) {
           return {
             content: [

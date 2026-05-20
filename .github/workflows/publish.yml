@@ -1,0 +1,50 @@
+name: Publish to npm with provenance
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify package.json version matches tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          PKG=$(node -p "require('./package.json').version")
+          echo "tag=$TAG package=$PKG"
+          test "$TAG" = "$PKG"
+
+      - name: Verify wrapper integrity sidecar
+        run: |
+          test -f build/wrapper.js
+          test -f build/wrapper.js.sha256
+          EXPECTED=$(cat build/wrapper.js.sha256 | tr -d '[:space:]')
+          ACTUAL=$(shasum -a 256 build/wrapper.js | awk '{print $1}')
+          echo "expected=$EXPECTED actual=$ACTUAL"
+          test "$EXPECTED" = "$ACTUAL"
+
+      - name: Publish to npm with provenance
+        # Uses npm Trusted Publishers (OIDC) — no NPM_TOKEN needed.
+        # Configure at: npmjs.com → @exfil/mcpgo → Settings → Trusted Publishers
+        run: npm publish --provenance --access public

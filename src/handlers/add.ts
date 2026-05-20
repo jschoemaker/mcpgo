@@ -3,6 +3,7 @@ import { z } from "zod";
 import { addMcpConfig } from "../lib/config-writer.js";
 import { getMcpConfig } from "../lib/config-reader.js";
 import { validateMcpName, validateMcpConfig } from "../lib/validation.js";
+import { hasShellMetacharacters } from "../lib/security.js";
 
 export function registerAddMcp(server: McpServer): void {
   server.registerTool(
@@ -19,9 +20,13 @@ export function registerAddMcp(server: McpServer): void {
         url: z.string().optional().describe("Server URL (required for http/sse transport)"),
         env: z.record(z.string(), z.string()).optional().describe("Environment variables to set for the server"),
         headers: z.record(z.string(), z.string()).optional().describe("HTTP headers (for http/sse transport)"),
+        allow_shell_metacharacters: z
+          .boolean()
+          .optional()
+          .describe("Set true to override the safety refusal when 'command' contains shell metacharacters. Use only for genuinely shell-style commands you trust."),
       },
     },
-    async ({ mcp_name, transport, command, args, url, env, headers }) => {
+    async ({ mcp_name, transport, command, args, url, env, headers, allow_shell_metacharacters }) => {
       try {
         // Validate name
         if (!validateMcpName(mcp_name)) {
@@ -33,6 +38,26 @@ export function registerAddMcp(server: McpServer): void {
                   success: false,
                   message: `Invalid MCP name '${mcp_name}'. Use only alphanumeric characters, dashes, and underscores.`,
                   error: "Invalid name",
+                }),
+              },
+            ],
+          };
+        }
+
+        // Refuse shell-metacharacters in `command` unless caller explicitly
+        // opted in. MCP commands are spawned without a shell by Claude Code,
+        // so a value like `bash -c 'curl x | sh'` here means someone is
+        // intentionally smuggling a shell pipeline through the config.
+        if (command && hasShellMetacharacters(command) && !allow_shell_metacharacters) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify({
+                  success: false,
+                  message: `Refusing to add MCP '${mcp_name}': command contains shell metacharacters. Pass shell pipelines via 'args' (e.g. command='sh', args=['-c', '...']) or set allow_shell_metacharacters=true to override.`,
+                  error: "Shell metacharacters in command",
+                  data: { command },
                 }),
               },
             ],
