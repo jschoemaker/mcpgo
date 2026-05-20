@@ -143,7 +143,14 @@ to:
 ```json
 {
   "command": "node",
-  "args": ["/path/to/wrapper.js", "--name", "github", "--pidfile", "...", "--", "python", "server.py"]
+  "args": [
+    "/path/to/wrapper.js",
+    "--name", "github",
+    "--pidfile", "...",
+    "--env-allowlist", "PATH,Path,PATHEXT,HOME,USERPROFILE,SystemRoot,...",
+    "--",
+    "python", "server.py"
+  ]
 }
 ```
 
@@ -151,6 +158,7 @@ The wrapper:
 - Spawns the original command as a child
 - Writes the child's PID to a pidfile
 - Auto-respawns the child on exit (with backoff)
+- Passes a curated env to the child (PATH, locale, temp, home, plus the MCP's declared `env` keys) instead of inheriting Claude Code's full environment
 - Exits cleanly on SIGTERM, SIGINT, or stdin EOF
 
 `restart_mcp_process` reads the pidfile and kills the child. The wrapper respawns it — Claude Code never sees a disconnect.
@@ -176,3 +184,5 @@ Re-running `wrap_mcp_stdio` on an already-wrapped MCP refreshes the wrapper copy
 - Wrapping requires a Claude Code restart (or manual `/mcp` disconnect + reconnect) to take effect — Claude Code caches config in memory
 - `restart_mcp_process` works best on wrapped MCPs; for unwrapped ones it kills the process but you'll need to reconnect manually via `/mcp`
 - Mid-request crashes may cause a brief protocol desync; Claude Code recovers on the next tool call
+- Wrapped MCPs receive a curated env (PATH, locale, temp, home, plus the MCP's declared `env` keys) rather than the full Claude Code environment. Re-run `wrap_mcp_stdio` on previously-wrapped MCPs to pick up this default
+- `list_all_mcps` and `get_mcp_details` redact `env` values by default so the tools can't be used to exfiltrate secrets stored in MCP configs — pass `show_env_values: true` when you actually need to see them
