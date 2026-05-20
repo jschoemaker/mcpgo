@@ -10,6 +10,11 @@ permissions:
   contents: read
   id-token: write
 
+# Opt the JS-based actions (checkout, setup-node) into Node 24, ahead of the
+# 2026-06-02 default switch. See GitHub deprecation notice for Node 20 runtime.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -18,7 +23,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           registry-url: 'https://registry.npmjs.org'
 
       - name: Upgrade npm (trusted-publisher OIDC requires npm >= 11.5)
