@@ -27,7 +27,9 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
 
       - name: Upgrade npm (trusted-publisher OIDC requires npm >= 11.5)
-        run: npm install -g npm@latest
+        # --force avoids the known "Cannot find module 'promise-retry'" race
+        # where npm 10.x deletes its own files during the self-upgrade.
+        run: npm install -g npm@11 --force
 
       - name: Install dependencies
         run: npm ci
