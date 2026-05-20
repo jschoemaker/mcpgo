@@ -3,7 +3,7 @@ import { z } from "zod";
 import { addMcpConfig } from "../lib/config-writer.js";
 import { getMcpConfig } from "../lib/config-reader.js";
 import { validateMcpName, validateMcpConfig } from "../lib/validation.js";
-import { hasShellMetacharacters } from "../lib/security.js";
+import { findFootgunArg, findFootgunEnvKey, hasShellMetacharacters } from "../lib/security.js";
 
 export function registerAddMcp(server: McpServer): void {
   server.registerTool(
@@ -24,9 +24,17 @@ export function registerAddMcp(server: McpServer): void {
           .boolean()
           .optional()
           .describe("Set true to override the safety refusal when 'command' contains shell metacharacters. Use only for genuinely shell-style commands you trust."),
+        allow_footgun_args: z
+          .boolean()
+          .optional()
+          .describe("Set true to override the safety refusal when args include code-injection flags like -e/--eval on node, -c on python/bash, -Command on pwsh, /c on cmd."),
+        allow_footgun_env: z
+          .boolean()
+          .optional()
+          .describe("Set true to override the safety refusal when env sets a code-injection key like NODE_OPTIONS, LD_PRELOAD, PYTHONSTARTUP, BASH_ENV."),
       },
     },
-    async ({ mcp_name, transport, command, args, url, env, headers, allow_shell_metacharacters }) => {
+    async ({ mcp_name, transport, command, args, url, env, headers, allow_shell_metacharacters, allow_footgun_args, allow_footgun_env }) => {
       try {
         // Validate name
         if (!validateMcpName(mcp_name)) {
@@ -62,6 +70,50 @@ export function registerAddMcp(server: McpServer): void {
               },
             ],
           };
+        }
+
+        // Refuse interpreter "eval" / "command" flags in args. The metachar
+        // check on `command` is bypassed trivially by putting the payload in
+        // args (`command: "node", args: ["-e", "evil"]`), so guard args too.
+        if (command && args && !allow_footgun_args) {
+          const hit = findFootgunArg(command, args);
+          if (hit) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: JSON.stringify({
+                    success: false,
+                    message: `Refusing to add MCP '${mcp_name}': args include '${hit.flag}' for ${hit.interpreter}, which evaluates arbitrary code. Pass code via a script file instead, or set allow_footgun_args=true to override.`,
+                    error: "Footgun arg",
+                    data: { interpreter: hit.interpreter, flag: hit.flag },
+                  }),
+                },
+              ],
+            };
+          }
+        }
+
+        // Refuse code-execution env vars by default. NODE_OPTIONS, LD_PRELOAD,
+        // PYTHONSTARTUP, BASH_ENV etc. all let an attacker plant code that
+        // runs on every spawn even with a benign-looking command.
+        if (env && !allow_footgun_env) {
+          const hitKey = findFootgunEnvKey(env);
+          if (hitKey) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: JSON.stringify({
+                    success: false,
+                    message: `Refusing to add MCP '${mcp_name}': env sets '${hitKey}', which loads code at process start. Set allow_footgun_env=true to override.`,
+                    error: "Footgun env",
+                    data: { key: hitKey },
+                  }),
+                },
+              ],
+            };
+          }
         }
 
         // Validate config

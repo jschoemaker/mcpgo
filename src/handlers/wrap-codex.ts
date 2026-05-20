@@ -12,7 +12,7 @@ import {
   writeCodexConfigToml,
 } from "../lib/codex-config.js";
 import { ensureStableWrapper, getStableWrapperPath } from "../lib/wrapper-path.js";
-import { assertValidMcpName, InvalidMcpNameError, nameErrorResponse } from "../lib/security.js";
+import { assertValidMcpName, DEFAULT_WRAPPER_ENV_ALLOWLIST, InvalidMcpNameError, nameErrorResponse } from "../lib/security.js";
 
 function getBuiltWrapperPath(): string {
   // When running from build/, this module is build/handlers/wrap-codex.js and wrapper is build/wrapper.js
@@ -92,7 +92,18 @@ export function registerWrapCodexMcp(server: McpServer): void {
 
         const pidfile = defaultPidfile(mcp_name);
         const stableWrapperPath = getStableWrapperPath();
-        const newArgs = [stableWrapperPath, "--name", `codex.${mcp_name}`, "--pidfile", pidfile, "--"];
+        // Codex TOML env table isn't extracted here (the current parser only
+        // handles command/args), so the wrapper allowlist is just the default
+        // safe set. Any env vars the wrapped MCP genuinely needs should be in
+        // the default list or set system-wide.
+        const envAllowlist = DEFAULT_WRAPPER_ENV_ALLOWLIST.join(",");
+        const newArgs = [
+          stableWrapperPath,
+          "--name", `codex.${mcp_name}`,
+          "--pidfile", pidfile,
+          "--env-allowlist", envAllowlist,
+          "--",
+        ];
 
         const block = findMcpServerBlock(content, mcp_name);
         if (!block) {

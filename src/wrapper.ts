@@ -10,7 +10,7 @@ type WrapperOptions = {
   cwd?: string;
   respawnMs: number;
   maxBackoffMs: number;
-  envAllowlist?: Set<string>;
+  envAllowSpec?: string[];
 };
 
 function parseArgs(argv: string[]): { opts: WrapperOptions; child: { command: string; args: string[] } } {
@@ -38,8 +38,7 @@ function parseArgs(argv: string[]): { opts: WrapperOptions; child: { command: st
     } else if (a === "--max-backoff-ms") {
       opts.maxBackoffMs = Number(args[++i]);
     } else if (a === "--env-allowlist") {
-      const list = (args[++i] || "").split(",").map((s) => s.trim()).filter(Boolean);
-      opts.envAllowlist = new Set(list);
+      opts.envAllowSpec = (args[++i] || "").split(",").map((s) => s.trim()).filter(Boolean);
     }
   }
 
@@ -98,10 +97,25 @@ function resolveExecutable(command: string, env: NodeJS.ProcessEnv): string {
   return command;
 }
 
-function filterEnv(source: NodeJS.ProcessEnv, allowlist: Set<string>): NodeJS.ProcessEnv {
+/**
+ * Filter process env by an allowlist. Entries ending in "*" are prefix
+ * matches (e.g. "LC_*" allows LC_ALL, LC_CTYPE). Env var names are
+ * case-insensitive on Windows; case-sensitive elsewhere.
+ */
+function filterEnv(source: NodeJS.ProcessEnv, allowSpec: readonly string[]): NodeJS.ProcessEnv {
+  const ci = process.platform === "win32";
+  const norm = (s: string) => (ci ? s.toUpperCase() : s);
+  const exact = new Set<string>();
+  const prefixes: string[] = [];
+  for (const item of allowSpec) {
+    if (item.endsWith("*")) prefixes.push(norm(item.slice(0, -1)));
+    else exact.add(norm(item));
+  }
   const out: NodeJS.ProcessEnv = {};
-  for (const key of allowlist) {
-    if (source[key] !== undefined) out[key] = source[key];
+  for (const [key, val] of Object.entries(source)) {
+    if (val === undefined) continue;
+    const n = norm(key);
+    if (exact.has(n) || prefixes.some((p) => n.startsWith(p))) out[key] = val;
   }
   return out;
 }
@@ -139,8 +153,8 @@ async function main() {
 
   async function spawnChild(): Promise<void> {
     const startedAt = Date.now();
-    const childEnv = opts.envAllowlist
-      ? filterEnv(process.env, opts.envAllowlist)
+    const childEnv = opts.envAllowSpec
+      ? filterEnv(process.env, opts.envAllowSpec)
       : process.env;
     const resolved = resolveExecutable(child.command, childEnv);
     // Node ≥ 18.20 / 20.12 refuses to spawn .cmd / .bat files without a shell

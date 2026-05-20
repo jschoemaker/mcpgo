@@ -106,3 +106,98 @@ export function sanitizeWqlKeyword(s: string): string {
 export function sanitizePgrepKeyword(s: string): string {
   return s.replace(/[^a-zA-Z0-9._\-/\\$:]/g, "");
 }
+
+/**
+ * Footgun args by interpreter basename. Each of these lets the caller smuggle
+ * arbitrary code into a process whose `command` looks innocuous (`node`,
+ * `python`, `bash`). The shell-metacharacter check on `command` does not catch
+ * this — the payload lives in `args`. Callers can opt in via
+ * allow_footgun_args=true when they legitimately need a `-c` / `-e` shell.
+ */
+const FOOTGUN_ARGS_BY_INTERPRETER: Record<string, ReadonlySet<string>> = {
+  node: new Set(["-e", "--eval", "-p", "--print", "-r", "--require"]),
+  python: new Set(["-c"]),
+  python3: new Set(["-c"]),
+  ruby: new Set(["-e"]),
+  perl: new Set(["-e", "-E"]),
+  bash: new Set(["-c"]),
+  sh: new Set(["-c"]),
+  zsh: new Set(["-c"]),
+  ksh: new Set(["-c"]),
+  pwsh: new Set(["-Command", "-c", "-EncodedCommand", "-e"]),
+  powershell: new Set(["-Command", "-c", "-EncodedCommand", "-e"]),
+  cmd: new Set(["/c", "/C", "/k", "/K"]),
+};
+
+function basenameOf(command: string): string {
+  const last = command.split(/[\\/]/).pop() || command;
+  return last.replace(/\.(exe|cmd|bat|com)$/i, "").toLowerCase();
+}
+
+export function findFootgunArg(command: string, args: readonly string[]): { interpreter: string; flag: string } | null {
+  const base = basenameOf(command);
+  const flags = FOOTGUN_ARGS_BY_INTERPRETER[base];
+  if (!flags) return null;
+  for (const a of args) {
+    if (flags.has(a)) return { interpreter: base, flag: a };
+    // Long-form `--require=foo` style
+    if (a.startsWith("--")) {
+      const eq = a.indexOf("=");
+      const head = eq >= 0 ? a.slice(0, eq) : a;
+      if (flags.has(head)) return { interpreter: base, flag: head };
+    }
+  }
+  return null;
+}
+
+/**
+ * Env var names that act as side-channel code-execution primitives for common
+ * runtimes — loading modules, sourcing init files, injecting shared libraries.
+ * A wrapped MCP whose config sets one of these is effectively "run this code
+ * on every spawn." Same opt-in shape as findFootgunArg.
+ */
+const FOOTGUN_ENV_KEYS: ReadonlySet<string> = new Set([
+  "NODE_OPTIONS",
+  "NODE_PATH",
+  "PYTHONSTARTUP",
+  "PYTHONPATH",
+  "LD_PRELOAD",
+  "LD_LIBRARY_PATH",
+  "LD_AUDIT",
+  "DYLD_INSERT_LIBRARIES",
+  "DYLD_LIBRARY_PATH",
+  "BASH_ENV",
+  "ENV",
+  "PROMPT_COMMAND",
+  "PERL5OPT",
+  "PERL5LIB",
+  "RUBYOPT",
+  "RUBYLIB",
+]);
+
+export function findFootgunEnvKey(env: Record<string, string> | undefined): string | null {
+  if (!env) return null;
+  for (const key of Object.keys(env)) {
+    if (FOOTGUN_ENV_KEYS.has(key)) return key;
+  }
+  return null;
+}
+
+/**
+ * Default env passthrough for wrapped MCPs. Covers what's needed for typical
+ * shells/runtimes to start (locale, temp, home, PATH) without leaking arbitrary
+ * secrets from Claude Code's environment. Trailing `*` means prefix match.
+ * wrap_mcp_stdio appends the MCP's own declared env keys on top.
+ */
+export const DEFAULT_WRAPPER_ENV_ALLOWLIST: readonly string[] = [
+  "PATH", "Path", "PATHEXT",
+  "HOME", "USERPROFILE",
+  "SystemRoot", "WINDIR",
+  "APPDATA", "LOCALAPPDATA", "ProgramData", "ProgramFiles", "ProgramFiles(x86)",
+  "TEMP", "TMP", "TMPDIR",
+  "LANG", "LC_*", "TZ",
+  "USER", "USERNAME", "LOGNAME",
+  "SHELL", "COMSPEC", "OS",
+  "XDG_*",
+];
+

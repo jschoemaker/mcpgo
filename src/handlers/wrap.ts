@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { getMcpConfig } from "../lib/config-reader.js";
 import { replaceMcpConfig } from "../lib/config-writer.js";
 import { ensureStableWrapper, getStableWrapperPath } from "../lib/wrapper-path.js";
-import { assertValidMcpName, InvalidMcpNameError, nameErrorResponse } from "../lib/security.js";
+import { assertValidMcpName, DEFAULT_WRAPPER_ENV_ALLOWLIST, InvalidMcpNameError, nameErrorResponse } from "../lib/security.js";
 
 type McpServerConfig = {
   type?: string;
@@ -46,6 +46,15 @@ function isAlreadyWrapped(cfg: McpServerConfig, wrapperPath: string): boolean {
   });
   const hasSeparator = cfg.args.includes("--");
   return hasWrapper && hasSeparator;
+}
+
+function hasEnvAllowlistArg(cfg: McpServerConfig): boolean {
+  return !!cfg.args && cfg.args.includes("--env-allowlist");
+}
+
+function buildEnvAllowlist(declaredEnv: Record<string, string> | undefined): string {
+  const declaredKeys = declaredEnv ? Object.keys(declaredEnv) : [];
+  return [...DEFAULT_WRAPPER_ENV_ALLOWLIST, ...declaredKeys].join(",");
 }
 
 export function registerWrapMcp(server: McpServer): void {
@@ -115,8 +124,10 @@ export function registerWrapMcp(server: McpServer): void {
         }
 
         const stableWrapperPath = getStableWrapperPath();
-        if (isAlreadyWrapped(existing, stableWrapperPath)) {
-          // Re-copy wrapper to stable location in case it was updated
+        // If already wrapped AND the wrapping carries the current --env-allowlist
+        // arg, this is idempotent — just refresh the on-disk wrapper. Otherwise
+        // fall through to a full re-wrap so old wrappings pick up the new pattern.
+        if (isAlreadyWrapped(existing, stableWrapperPath) && hasEnvAllowlistArg(existing)) {
           await ensureStableWrapper(builtWrapperPath);
           return {
             content: [
@@ -132,8 +143,22 @@ export function registerWrapMcp(server: McpServer): void {
           };
         }
 
-        const command = existing.command;
-        const args = existing.args ?? [];
+        // If it was wrapped under the old pattern (no --env-allowlist), extract
+        // the original command + args from after the `--` separator so we can
+        // re-wrap it with the current pattern instead of double-wrapping.
+        let baseCommand = existing.command;
+        let baseArgs = existing.args ?? [];
+        if (isAlreadyWrapped(existing, stableWrapperPath)) {
+          const sepIdx = baseArgs.indexOf("--");
+          if (sepIdx >= 0 && sepIdx + 1 < baseArgs.length) {
+            const childArgs = baseArgs.slice(sepIdx + 1);
+            baseCommand = childArgs[0];
+            baseArgs = childArgs.slice(1);
+          }
+        }
+
+        const command = baseCommand;
+        const args = baseArgs;
         if (!command) {
           return {
             content: [
@@ -153,7 +178,15 @@ export function registerWrapMcp(server: McpServer): void {
         const pidfile = defaultPidfile(mcp_name);
         const wrapperPath = await ensureStableWrapper(builtWrapperPath);
 
-        const newArgs = [wrapperPath, "--name", mcp_name, "--pidfile", pidfile, "--", command, ...args];
+        const envAllowlist = buildEnvAllowlist(existing.env);
+        const newArgs = [
+          wrapperPath,
+          "--name", mcp_name,
+          "--pidfile", pidfile,
+          "--env-allowlist", envAllowlist,
+          "--",
+          command, ...args,
+        ];
 
         const updated = await replaceMcpConfig(mcp_name, {
           type: existing.type ?? "stdio",
